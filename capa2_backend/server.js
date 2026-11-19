@@ -5,6 +5,7 @@ import { jsonVerifyMiddleware } from './middlewares/jsonVerify.middleware.js';
 import { sanitizeMiddleware } from './middlewares/sanitize.middleware.js';
 import { versioningMiddleware } from './middlewares/versioning.middleware.js';
 import { errorHandlerMiddleware } from './middlewares/errorHandler.middleware.js';
+import { seedDatabaseIfNeeded } from './seed.js';
 import apiRouter from './routes/index.js';
 
 // 1. Cargar variables de entorno globales desde .env
@@ -53,7 +54,7 @@ app.use((req, res) => {
 app.use(errorHandlerMiddleware);
 
 // 6. Inicialización del Servidor en el Puerto 5050
-const server = app.listen(PORT, () => {
+const server = app.listen(PORT, async () => {
   console.log('====================================================');
   console.log(`🚀 Servidor Backend iniciado con éxito en el puerto ${PORT}`);
   console.log(`📡 URL Base API: http://localhost:${PORT}/api/${API_VERSION}/productos`);
@@ -61,6 +62,9 @@ const server = app.listen(PORT, () => {
   console.log(`📦 Base de Datos: PostgreSQL (BD: ${process.env.DB_NAME || 'clase12nov'})`);
   console.log(`🔒 Entorno: ${process.env.NODE_ENV || 'development'}`);
   console.log('====================================================');
+
+  // Inicializar o verificar automáticamente la base de datos con los 10.000 productos
+  await seedDatabaseIfNeeded();
 });
 
 // Manejo de apagado ordenado (Graceful Shutdown)
