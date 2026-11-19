@@ -1,0 +1,23 @@
+services:
+  - type: web
+    name: ebackend-api
+    runtime: node
+    rootDir: capa2_backend
+    plan: free
+    buildCommand: npm install && npx prisma generate
+    startCommand: npm start
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: clase16nov-db
+          property: connectionString
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 10000
+
+databases:
+  - name: clase16nov-db
+    databaseName: clase12nov
+    user: pez
+    plan: free
