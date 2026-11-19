@@ -1,0 +1,137 @@
+name: Backend CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "backend-${{ github.ref }}"
+  cancel-in-progress: true
+
+jobs:
+  test-and-verify:
+    name: Test, Lint and Integration Check
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: pez
+          POSTGRES_PASSWORD: postgrespassword
+          POSTGRES_DB: clase12nov
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+          cache-dependency-path: capa2_backend/package-lock.json
+
+      - name: Install dependencies
+        working-directory: capa2_backend
+        run: npm ci
+
+      - name: Syntax check on JavaScript files
+        working-directory: capa2_backend
+        run: |
+          node --check server.js
+          node --check controllers/producto.controller.js
+          node --check routes/producto.routes.js
+          node --check routes/index.js
+          node --check models/database/Database.js
+          node --check models/factories/ProductoFactory.js
+          node --check models/repositories/ProductoRepository.js
+
+      - name: Generate Prisma Client
+        working-directory: capa2_backend
+        env:
+          DATABASE_URL: "postgresql://pez:postgrespassword@localhost:5432/clase12nov?schema=public"
+        run: npx prisma generate
+
+      - name: Seed PostgreSQL Database
+        env:
+          PGPASSWORD: postgrespassword
+        run: |
+          psql -h localhost -U pez -d clase12nov -f capa1_datos/base_de_datos.sql
+
+      - name: Run Integration Tests with Prisma
+        working-directory: capa2_backend
+        env:
+          DATABASE_URL: "postgresql://pez:postgrespassword@localhost:5432/clase12nov?schema=public"
+          PORT: 5050
+          NODE_ENV: test
+        run: node test_integration.js
+
+      - name: Start Server and Verify HTTP Endpoints
+        working-directory: capa2_backend
+        env:
+          DATABASE_URL: "postgresql://pez:postgrespassword@localhost:5432/clase12nov?schema=public"
+          PORT: 5050
+          NODE_ENV: test
+        run: |
+          node server.js &
+          SERVER_PID=$!
+          echo "Servidor iniciado en PID $SERVER_PID. Esperando arranque..."
+          sleep 4
+          
+          # 1. Health check
+          HEALTH_RES=$(curl -s http://localhost:5050/api/v1/health)
+          echo "Health Check Response: $HEALTH_RES"
+          echo "$HEALTH_RES" | grep '"success":true' || exit 1
+          
+          # 2. Products paginated query
+          PROD_RES=$(curl -s "http://localhost:5050/api/v1/productos?page=1&limit=2")
+          echo "Products Response: $PROD_RES"
+          echo "$PROD_RES" | grep '"success":true' || exit 1
+          
+          # 3. Specific product query
+          PROD_1=$(curl -s "http://localhost:5050/api/v1/productos/1")
+          echo "Product 1 Response: $PROD_1"
+          echo "$PROD_1" | grep '"success":true' || exit 1
+          
+          kill $SERVER_PID
+          echo "Servidor detenido correctamente tras superar todas las pruebas."
+
+  deploy-pages:
+    name: Deploy GitHub Pages Docs
+    needs: test-and-verify
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: '.'
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
